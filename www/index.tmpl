@@ -5,6 +5,8 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     
+    <title>Export Spotify "Your music"</title>
+    
     <!-- Latest compiled and minified CSS -->
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.4/css/bootstrap.min.css">
 
@@ -18,20 +20,30 @@
   <body>
     <div class="container">
       <div class="page-header">
-        <h1>Export <em>"Your music"</em></h1>
+        <h1>Export Spotify <em>"Your music"</em></h1>
       </div>
+      
+      {{if .Imported}}
+      <div class="alert alert-success" role="alert">Import succeeded</div>
+      {{end}}
+      
       {{if .Login}}
       <a href="/logout" class="btn btn-danger">Log out</a>
       {{end}}
       <button class="btn btn-primary" data-role="export">Export</button>
-      <a href="/logout" class="btn btn-warning">Import</a>
+      <form class="form-inline" action="/upload" method="POST" enctype="multipart/form-data">
+        <div class="form-group">
+           <input type="file" class="form-control" name="import"/>
+          <button type="submit" href="/logout" class="btn btn-warning">Import</button>
+        </div>
+      </form>
       <div class="panel panel-default">
         <div class="panel-body">
           {{if .Login}}
             {{if .Authenticated}}
               <ul data-role="export-container" class="list-group"></ul>
             {{else}}
-              <a href="https://accounts.spotify.com/authorize?client_id=b57e5e2127014c8d9e45da5e507936bb&redirect_uri=http:%2F%2Fgo-102859.nitrousapp.com:8080%2Fcallback&response_type=code&state=123&scope=user-library-read" class="btn btn-default" data-role="grant-action">Grant access</a>
+              <a href="https://accounts.spotify.com/authorize?client_id=b57e5e2127014c8d9e45da5e507936bb&redirect_uri=http:%2F%2Fgo-102859.nitrousapp.com:8080%2Fcallback&response_type=code&state=123&scope=user-library-read%20user-library-modify" class="btn btn-default" data-role="grant-action">Grant access</a>
             {{end}}
           {{else}}
             <form action="/login" method="POST" class="form-inline">
@@ -45,6 +57,7 @@
       </div>
     </div>
     <form style="display: none;" method="GET" action="/api/trackList" data-role="export-form">
+      <input type="hidden" value="true" name="export"/>
     </form>
     <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
@@ -59,12 +72,12 @@
         }
         
         $.getJSON("/api/trackList", function(data) {
-          for (i = 0; i< data.Items.length; i++) {
-            var item = data.Items[i];
+          for (i = 0; i< data.items.length; i++) {
+            var item = data.items[i];
             
             console.log(item)
             
-            var s = item.Track.Artists[0].Name + " - " + item.Track.Album.Name + " - " + item.Track.Name;
+            var s = item.track.artists[0].name + " - " + item.track.album.name + " - " + item.track.name;
             
             var li = $("<li class='list-group-item'>" + s + "</li>");
             
