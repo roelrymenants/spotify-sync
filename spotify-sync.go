@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"time"
 
 	"github.com/GeertJohan/go.rice"
 	"github.com/gorilla/context"
@@ -165,6 +166,7 @@ func main() {
 
 			if i != 0 && pageIndex == 0 {
 				log.Print(trackIDs)
+				time.Sleep(1 * time.Second)
 				err = connection.AddTracksToLibrary(trackIDs...)
 				if err != nil {
 					log.Fatal(err)
@@ -246,6 +248,8 @@ func (c *SpotifyClient) getLibraryTrackListRec(offset int, trackList *spotify.Sa
 	}
 
 	if currentTrackList.Next != "" {
+		time.Sleep(1 * time.Second)
+
 		_, err = c.getLibraryTrackListRec(offset+limit, trackList)
 		if err != nil {
 			return nil, err
