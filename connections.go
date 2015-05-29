@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"log"
 	"net/http"
 	"net/url"
@@ -17,13 +18,7 @@ type connectionHandler struct {
 	connections   map[string]*SpotifyClient
 }
 
-func newConnectionHandler(host string, clientId string, clientSecret string) *connectionHandler {
-	redirectUrl := url.URL{
-		Scheme: "http",
-		Host:   host,
-		Path:   CallbackPath,
-	}
-
+func newConnectionHandler(redirectUrl url.URL, clientId string, clientSecret string) *connectionHandler {
 	auth := spotify.NewAuthenticator(redirectUrl.String(), spotify.ScopeUserLibraryRead, spotify.ScopeUserLibraryModify)
 	auth.SetAuthInfo(clientId, clientSecret)
 
@@ -32,15 +27,33 @@ func newConnectionHandler(host string, clientId string, clientSecret string) *co
 		clientId:      clientId,
 		clientSecret:  clientSecret,
 		Authenticator: &auth,
+		connections:   make(map[string]*SpotifyClient),
 	}
 }
 
 func (c connectionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "spotify-sync")
 
+	state, stateOk := session.Values["state"].(string)
+
+	if !stateOk {
+		n := 5
+		b := make([]byte, n)
+		_, err := rand.Read(b)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		state := string(b[:n])
+
+		session.Values["state"] = state
+
+		session.Save(r, w)
+	}
+
 	login, loginOk := session.Values["login"].(string)
 
-	imported, _ := session.Values["imported"].(bool)
+	flashes := session.Flashes()
 
 	connection, connectionOk := c.connections[login]
 
@@ -58,8 +71,9 @@ func (c connectionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	page := Page{
 		Login:         login,
-		Imported:      imported,
 		Authenticated: (connection != nil),
+		AuthUrl:       c.Authenticator.AuthURL(state),
+		Flashes:       flashes,
 	}
 
 	context.Set(r, "connection", connection)

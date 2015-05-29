@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -17,18 +18,19 @@ import (
 )
 
 const (
-	DefaultWwwRoot  = "www"
-	CallbackPath    = "/callback"
-	state           = "123" //Default state
-	DefaultHost     = "localhost"
-	DefaultScheme   = "http"
-	DefaultListener = ":8080"
+	DefaultWwwRoot = "www"
+	CallbackPath   = "/callback"
+	state          = "123" //Default state
+	DefaultHost    = "localhost"
+	DefaultScheme  = "http"
+	DefaultPort    = ":8080"
 )
 
 type Page struct {
 	Login         string
 	Authenticated bool
-	Imported      bool
+	Flashes       []interface{}
+	AuthUrl       string
 }
 
 var store = sessions.NewCookieStore([]byte("spotify-sync-secret"))
@@ -36,9 +38,9 @@ var store = sessions.NewCookieStore([]byte("spotify-sync-secret"))
 var connections map[string]*SpotifyClient
 
 func main() {
-	var wwwRoot = *flag.String("wwwRoot", DefaultWwwRoot, "Root directory from which to serve")
-	var host = *flag.String("host", DefaultHost, "Domain on which the app is served (e.g. 'localhost')")
-	var listener = *flag.String("listener", DefaultListener, "Binding on which to listen (e.g. ':8080')")
+	var wwwRoot = flag.String("wwwRoot", DefaultWwwRoot, "Root directory from which to serve")
+	var host = flag.String("host", DefaultHost, "Domain on which the app is served (e.g. 'localhost')")
+	var port = flag.String("port", DefaultPort, "Binding on which to listen (e.g. ':8080')")
 	flag.Parse()
 
 	clientId := os.Getenv("SPOTIFY_SYNC_ID")
@@ -53,7 +55,7 @@ func main() {
 		log.Fatal("Must provide spotify client secret using environment variable 'SPOTIFY_SYNC_SECRET'")
 	}
 
-	wwwBox := rice.MustFindBox(wwwRoot)
+	wwwBox := rice.MustFindBox(*wwwRoot)
 
 	http.HandleFunc("/api/trackList", func(w http.ResponseWriter, r *http.Request) {
 		connection := context.Get(r, "connection").(*SpotifyClient)
@@ -87,7 +89,8 @@ func main() {
 	http.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
 		session, _ := store.Get(r, "spotify-sync")
 
-		delete(session.Values, "login")
+		//Clear entire session
+		session.Options = &sessions.Options{MaxAge: -1}
 
 		session.Save(r, w)
 
@@ -140,7 +143,7 @@ func main() {
 			trackIDs[pageIndex] = track.ID
 		}
 
-		session.Values["imported"] = true
+		session.AddFlash("Import succeeded")
 
 		session.Save(r, w)
 
@@ -159,9 +162,15 @@ func main() {
 		template.Execute(w, page)
 	})
 
-	connectionHandler := newConnectionHandler(host, clientId, clientSecret)
+	redirectUrl := url.URL{
+		Scheme: "http",
+		Host:   *host + *port,
+		Path:   CallbackPath,
+	}
 
-	log.Fatal(http.ListenAndServe(listener, context.ClearHandler(connectionHandler)))
+	connectionHandler := newConnectionHandler(redirectUrl, clientId, clientSecret)
+
+	log.Fatal(http.ListenAndServe(*port, context.ClearHandler(connectionHandler)))
 }
 
 func loadTemplate(name string, wwwBox *rice.Box) (t *template.Template, err error) {

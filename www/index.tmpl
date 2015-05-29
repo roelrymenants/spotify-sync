@@ -23,8 +23,8 @@
         <h1>Export Spotify <em>"Your music"</em></h1>
       </div>
       
-      {{if .Imported}}
-      <div class="alert alert-success" role="alert">Import succeeded</div>
+      {{range .Flashes}}
+      <div class="alert alert-info" role="alert">{{.}}</div>
       {{end}}
       
       {{if .Login}}
@@ -43,7 +43,7 @@
             {{if .Authenticated}}
               <ul data-role="export-container" class="list-group"></ul>
             {{else}}
-              <a href="https://accounts.spotify.com/authorize?client_id=b57e5e2127014c8d9e45da5e507936bb&redirect_uri=http:%2F%2Fgo-102859.nitrousapp.com:8080%2Fcallback&response_type=code&state=123&scope=user-library-read%20user-library-modify" class="btn btn-default" data-role="grant-action">Grant access</a>
+              <a href="{{.AuthUrl}}" class="btn btn-default" data-role="grant-action">Grant access</a>
             {{end}}
           {{else}}
             <form action="/login" method="POST" class="form-inline">
