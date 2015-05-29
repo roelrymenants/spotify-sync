@@ -7,25 +7,23 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/GeertJohan/go.rice"
 	"github.com/gorilla/context"
 	"github.com/gorilla/sessions"
-	"github.com/roelrymenants/spotify"
+	"github.com/zmb3/spotify"
 )
 
 const (
-	DefaultWwwRoot = "www"
-	clientId       = "b57e5e2127014c8d9e45da5e507936bb"
-	clientSecret   = "8b980072b2cf4f52ba05a75b7391ba46"
-	RedirectUrl    = "http://go-102859.nitrousapp.com:8080/callback"
-	state          = "123" //Default state
+	DefaultWwwRoot  = "www"
+	CallbackPath    = "/callback"
+	state           = "123" //Default state
+	DefaultHost     = "localhost"
+	DefaultScheme   = "http"
+	DefaultListener = ":8080"
 )
-
-type SpotifyClient struct {
-	spotify.Client
-}
 
 type Page struct {
 	Login         string
@@ -37,59 +35,25 @@ var store = sessions.NewCookieStore([]byte("spotify-sync-secret"))
 
 var connections map[string]*SpotifyClient
 
-type connectionHandler struct {
-	h             http.Handler
-	Authenticator *spotify.Authenticator
-}
-
-func newConnectionHandler() *connectionHandler {
-	auth := spotify.NewAuthenticator(RedirectUrl, spotify.ScopeUserLibraryRead)
-	auth.SetAuthInfo(clientId, clientSecret)
-
-	return &connectionHandler{
-		h:             http.DefaultServeMux,
-		Authenticator: &auth,
-	}
-}
-
-func (c connectionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, "spotify-sync")
-
-	login, loginOk := session.Values["login"].(string)
-
-	imported, _ := session.Values["imported"].(bool)
-
-	context.Set(r, "login", login)
-	context.Set(r, "imported", imported)
-
-	connection, connectionOk := connections[login]
-	log.Print(r.URL.Path)
-	if !connectionOk && loginOk && r.URL.Path == "/callback" {
-		token, err := c.Authenticator.Token(state, r)
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		tConn := SpotifyClient{c.Authenticator.NewClient(token)}
-		connection = &tConn
-		connections[login] = connection
-
-		http.Redirect(w, r, "/", 301)
-	}
-
-	context.Set(r, "connection", connection)
-
-	c.h.ServeHTTP(w, r)
-}
-
 func main() {
 	var wwwRoot = *flag.String("wwwRoot", DefaultWwwRoot, "Root directory from which to serve")
+	var host = *flag.String("host", DefaultHost, "Domain on which the app is served (e.g. 'localhost')")
+	var listener = *flag.String("listener", DefaultListener, "Binding on which to listen (e.g. ':8080')")
 	flag.Parse()
 
-	wwwBox := rice.MustFindBox(wwwRoot)
+	clientId := os.Getenv("SPOTIFY_SYNC_ID")
 
-	connections = make(map[string]*SpotifyClient)
+	if clientId == "" {
+		log.Fatal("Must provide spotify client id using environment variable 'SPOTIFY_SYNC_ID'")
+	}
+
+	clientSecret := os.Getenv("SPOTIFY_SYNC_SECRET")
+
+	if clientSecret == "" {
+		log.Fatal("Must provide spotify client secret using environment variable 'SPOTIFY_SYNC_SECRET'")
+	}
+
+	wwwBox := rice.MustFindBox(wwwRoot)
 
 	http.HandleFunc("/api/trackList", func(w http.ResponseWriter, r *http.Request) {
 		connection := context.Get(r, "connection").(*SpotifyClient)
@@ -130,8 +94,8 @@ func main() {
 		http.Redirect(w, r, "/", 301)
 	})
 
-	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		//Hack dummy handlefunc
+	http.HandleFunc(CallbackPath, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/", 301)
 	})
 
 	http.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
@@ -184,16 +148,7 @@ func main() {
 	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		connection := context.Get(r, "connection").(*SpotifyClient)
-
-		var page Page
-
-		page.Login = context.Get(r, "login").(string)
-		page.Imported = context.Get(r, "imported").(bool)
-
-		if connection != nil && connection != nil {
-			page.Authenticated = true
-		}
+		page := context.Get(r, "page").(Page)
 
 		template, err := loadTemplate("index", wwwBox)
 
@@ -204,7 +159,9 @@ func main() {
 		template.Execute(w, page)
 	})
 
-	log.Fatal(http.ListenAndServe(":8080", context.ClearHandler(newConnectionHandler())))
+	connectionHandler := newConnectionHandler(host, clientId, clientSecret)
+
+	log.Fatal(http.ListenAndServe(listener, context.ClearHandler(connectionHandler)))
 }
 
 func loadTemplate(name string, wwwBox *rice.Box) (t *template.Template, err error) {
@@ -221,40 +178,4 @@ func loadTemplate(name string, wwwBox *rice.Box) (t *template.Template, err erro
 	}
 
 	return
-}
-
-func (c *SpotifyClient) getLibraryTrackList() (*spotify.SavedTrackPage, error) {
-	return c.getLibraryTrackListRec(0, nil)
-}
-
-func (c *SpotifyClient) getLibraryTrackListRec(offset int, trackList *spotify.SavedTrackPage) (*spotify.SavedTrackPage, error) {
-	limit := 50
-
-	opt := spotify.Options{
-		Limit:  &limit,
-		Offset: &offset,
-	}
-
-	currentTrackList, err := c.CurrentUsersTracksOpt(&opt)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if trackList == nil {
-		trackList = currentTrackList
-	} else {
-		trackList.Tracks = append(trackList.Tracks, currentTrackList.Tracks...)
-	}
-
-	if currentTrackList.Next != "" {
-		time.Sleep(1 * time.Second)
-
-		_, err = c.getLibraryTrackListRec(offset+limit, trackList)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return trackList, nil
 }
